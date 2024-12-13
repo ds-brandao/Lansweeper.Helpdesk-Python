@@ -9,10 +9,33 @@ import logging
 
 
 class HelpdeskAPI:
+    """A wrapper class for the Lansweeper Helpdesk API.
+
+    This class provides methods to interact with the Lansweeper Helpdesk API,
+    including creating, retrieving, and managing tickets, adding notes, and searching users.
+
+    Attributes:
+        base_url (str): The base URL of the Lansweeper Helpdesk API.
+        api_key (str): The API key for authentication.
+        cert_path (str): Path to the SSL certificate file.
+        session (requests.Session): A session object for making HTTP requests.
+    """
+
     def __init__(self,
                  base_url=None, 
                  api_key=None, 
                  cert_path=None):
+        """Initialize the HelpdeskAPI client.
+
+        Args:
+            base_url (str): The base URL of the Lansweeper Helpdesk API.
+            api_key (str): The API key for authentication.
+            cert_path (str): Path to the SSL certificate file.
+
+        Raises:
+            ValueError: If base_url or api_key is not provided.
+            FileNotFoundError: If the certificate file is not found.
+        """
         
         self.base_url = base_url
         self.api_key = api_key
@@ -29,12 +52,30 @@ class HelpdeskAPI:
     
     # Function to pretty-print JSON response
     def pretty_print_response(self, response):
+        """Pretty print the API response in a formatted JSON structure.
+
+        Args:
+            response (dict): The API response to format and print.
+        """
         if response:
             print(json.dumps(response, indent=4, sort_keys=True))
         else:
             print("No response or an error occurred.")
 
     def make_request(self, action, method='GET', params=None, data=None, files=None):
+        """Make an HTTP request to the Lansweeper Helpdesk API.
+
+        Args:
+            action (str): The API action to perform.
+            method (str, optional): HTTP method to use ('GET' or 'POST'). Defaults to 'GET'.
+            params (dict, optional): Query parameters to include. Defaults to None.
+            data (dict, optional): Data to send in the request body. Defaults to None.
+            files (dict, optional): Files to upload. Defaults to None.
+
+        Returns:
+            dict or str: The API response, parsed as JSON if possible, otherwise as raw text.
+            None: If the request fails or returns empty response.
+        """
         params = params or {}
         data = data or {}
         
@@ -85,11 +126,23 @@ class HelpdeskAPI:
 
     @usage_decorator
     def create_ticket(self, subject, description, email):
-        """
-        Usage: create_ticket(subject, description, email)
-        - subject: The subject of the ticket.
-        - description: The description of the ticket.
-        - email: The email of the requester.
+        """Create a new ticket in the helpdesk system.
+
+        Args:
+            subject (str): The subject line of the ticket.
+            description (str): Detailed description of the issue or request.
+            email (str): Email address of the ticket requester.
+
+        Returns:
+            dict: The API response containing the created ticket information.
+            None: If the ticket creation fails.
+
+        Example:
+            >>> api.create_ticket(
+                    subject="Network Issue",
+                    description="Unable to connect to internal network",
+                    email="user@example.com"
+                )
         """
         params = {
             'Subject': subject,
@@ -102,9 +155,18 @@ class HelpdeskAPI:
 
     @usage_decorator
     def get_ticket(self, ticket_id):
-        """
-        Usage: get_ticket(ticket_id)
-        - ticket_id: The ID of the ticket to retrieve.
+        """Retrieve details of a specific ticket.
+
+        Args:
+            ticket_id (str): The unique identifier of the ticket.
+
+        Returns:
+            dict: Ticket information including status, description, and metadata.
+                 HTML in description field is automatically converted to plain text.
+            None: If the ticket retrieval fails or ticket doesn't exist.
+
+        Example:
+            >>> api.get_ticket("12345")
         """
         params = {
             'TicketID': ticket_id,
@@ -124,9 +186,18 @@ class HelpdeskAPI:
     
     @usage_decorator
     def get_ticket_history(self, ticket_id):
-        """
-        Usage: get_ticket_history(ticket_id)
-        - ticket_id: The ID of the ticket to retrieve the history of.
+        """Retrieve the complete history of a ticket including all notes and updates.
+
+        Args:
+            ticket_id (str): The unique identifier of the ticket.
+
+        Returns:
+            str: Formatted JSON string containing the ticket's history.
+                 Includes all notes with HTML content converted to plain text.
+            None: If the history retrieval fails.
+
+        Note:
+            This method includes a 1-second delay between requests to prevent API rate limiting.
         """
         params = {
             'TicketID': ticket_id,
@@ -175,12 +246,25 @@ class HelpdeskAPI:
 
     @usage_decorator
     def add_note(self, ticket_id, text, email, type) -> dict | None:
-        """
-        Usage: add_note(ticket_id, text, email)
-        - ticket_id: The ID of the ticket to add a note to.
-        - text: The text of the note.
-        - email: The email of the person adding the note.
-        - type: The type of note to add. (Public or Internal)
+        """Add a note to an existing ticket.
+
+        Args:
+            ticket_id (str): The unique identifier of the ticket.
+            text (str): The content of the note to add.
+            email (str): Email address of the note author.
+            type (str): Type of note - either 'Public' or 'Internal'.
+
+        Returns:
+            dict: The API response confirming note addition.
+            None: If adding the note fails.
+
+        Example:
+            >>> api.add_note(
+                    ticket_id="12345",
+                    text="Updated status with customer",
+                    email="agent@example.com",
+                    type="Public"
+                )
         """
         try:
             logging.info(f"Adding note to ticket {ticket_id}")
@@ -204,17 +288,33 @@ class HelpdeskAPI:
     
     @usage_decorator
     def search_ticket(self, state=None, FromUserId=None, AgentId=None, Description=None, Subject=None, Type=None, MaxResults=None, MinDate=None, MaxDate=None):
-        """
-        Usage: search_ticket(state=None, FromUserId=None, AgentId=None, Description=None, Subject=None, Type=None, MaxResults=None, MinDate=None, MaxDate=None)
-        - state: The state of the ticket. (Open, Closed, etc.)
-        - FromUserId: The ID of the user who created the ticket.
-        - AgentId: The ID of the agent who is assigned to the ticket.
-        - Description: The description of the ticket.
-        - Subject: The subject of the ticket.
-        - Type: The type of ticket. (Desk Phone, Emails, Fax, General IT Support, Hardware Repair/Replacement, IPhone Project, IT Purchase Request, Network, New Hire/Transfer, Temp local PC admin access. User Account Termination)
-        - MaxResults: The maximum number of results to return. (Default is 100)
-        - MinDate: The minimum date for ticket search.
-        - MaxDate: The maximum date for ticket search.
+        """Search for tickets based on various criteria.
+
+        Args:
+            state (str, optional): Ticket state ('Open', 'Closed', etc.).
+            FromUserId (str, optional): ID of the ticket creator.
+            AgentId (str, optional): ID of the assigned agent.
+            Description (str, optional): Search text in ticket description.
+            Subject (str, optional): Search text in ticket subject.
+            Type (str, optional): Ticket type (e.g., 'Hardware Repair', 'Network', etc.).
+            MaxResults (int, optional): Maximum number of results to return (default 100).
+            MinDate (str, optional): Start date for ticket search (format: YYYY-MM-DD).
+            MaxDate (str, optional): End date for ticket search (format: YYYY-MM-DD).
+
+        Returns:
+            dict: List of matching ticket IDs and their information.
+            None: If the search fails.
+
+        Note:
+            If MaxResults is set lower than the actual number of matching tickets,
+            the API will return an empty list.
+
+        Example:
+            >>> api.search_ticket(
+                    state="Open",
+                    Type="Hardware Repair",
+                    MaxResults=50
+                )
         """
         params = {
             'State': state,
@@ -236,9 +336,17 @@ class HelpdeskAPI:
     
     @usage_decorator
     def get_user(self, email):  
-        """
-        Usage: get_user(email)
-        - Email: The email of the user to retrieve.
+        """Retrieve user information by email address.
+
+        Args:
+            email (str): Email address of the user to look up.
+
+        Returns:
+            dict: User information including ID and profile details.
+            None: If the user is not found or lookup fails.
+
+        Example:
+            >>> api.get_user("user@example.com")
         """
         params = {
             'Email': email
@@ -249,12 +357,25 @@ class HelpdeskAPI:
 
     @usage_decorator
     def edit_ticket(self, ticket_id, state, type, email):
-        """
-        Usage: edit_ticket(ticket_id, state, type, email)
-        - ticket_id: The ID of the ticket to edit.
-        - state: The state of the ticket. (Open, Closed, etc.)
-        - type: The type of ticket. (Desk Phone, Emails, Fax, General IT Support, Hardware Repair/Replacement, IPhone Project, IT Purchase Request, Network, New Hire/Transfer, Temp local PC admin access. User Account Termination)
-        - email: The email of the person editing the ticket.
+        """Update an existing ticket's properties.
+
+        Args:
+            ticket_id (str): The unique identifier of the ticket to edit.
+            state (str): New state for the ticket ('Open', 'Closed', etc.).
+            type (str): New type for the ticket (e.g., 'Hardware Repair', 'Network').
+            email (str): Email address of the person making the edit.
+
+        Returns:
+            dict: The API response confirming ticket updates.
+            None: If the ticket update fails.
+
+        Example:
+            >>> api.edit_ticket(
+                    ticket_id="12345",
+                    state="Closed",
+                    type="Hardware Repair",
+                    email="agent@example.com"
+                )
         """
         params = {
             'TicketID': ticket_id,
