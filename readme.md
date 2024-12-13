@@ -38,10 +38,7 @@ If you find this useful, please feel free to contribute to the project and make 
 
 ## Installation
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/your-username/helpdesk-api-wrapper.git
-   ```
+1. Clone this repository
 
 2. Install required dependencies:
    ```bash
