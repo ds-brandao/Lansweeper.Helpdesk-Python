@@ -1,0 +1,5 @@
+{
+    "base_url": "https://your-helpdesk-url:443/api.aspx",
+    "api_key": "your-api-key-here",
+    "cert_path": "path/to/your/certificate.pem"
+}
