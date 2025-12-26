@@ -1,234 +1,445 @@
-import requests
-import os
+"""
+Lansweeper Helpdesk API Wrapper
+
+A Python wrapper for interacting with the Lansweeper Helpdesk API.
+Provides methods for ticket management, user lookup, and note handling.
+
+Example:
+    >>> from helpdesk import HelpdeskAPI
+    >>> api = HelpdeskAPI.from_config('config/config.json')
+    >>> with api:
+    ...     ticket = api.get_ticket('12345')
+"""
+
+from __future__ import annotations
+
 import functools
 import json
-import time
-from bs4 import BeautifulSoup
-import json
 import logging
+import os
+import time
+from typing import Any, Callable, TypeVar
+
+import requests
+from bs4 import BeautifulSoup
+
+
+# Configure module logger
+logger = logging.getLogger(__name__)
+
+
+# Type variable for generic function wrapper
+F = TypeVar('F', bound=Callable[..., Any])
+
+
+# =============================================================================
+# Custom Exceptions
+# =============================================================================
+
+
+class HelpdeskError(Exception):
+    """Base exception for Helpdesk API errors."""
+    pass
+
+
+class ConfigurationError(HelpdeskError):
+    """Raised when there's a configuration error."""
+    pass
+
+
+class APIError(HelpdeskError):
+    """Raised when an API request fails."""
+
+    def __init__(self, message: str, status_code: int | None = None, response: Any = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = response
+
+
+class CertificateError(HelpdeskError):
+    """Raised when there's an SSL certificate error."""
+    pass
+
+
+# =============================================================================
+# Helpdesk API Client
+# =============================================================================
 
 
 class HelpdeskAPI:
     """A wrapper class for the Lansweeper Helpdesk API.
 
     This class provides methods to interact with the Lansweeper Helpdesk API,
-    including creating, retrieving, and managing tickets, adding notes, and searching users.
+    including creating, retrieving, and managing tickets, adding notes, and
+    searching users.
 
     Attributes:
-        base_url (str): The base URL of the Lansweeper Helpdesk API.
-        api_key (str): The API key for authentication.
-        cert_path (str): Path to the SSL certificate file.
-        session (requests.Session): A session object for making HTTP requests.
+        base_url: The base URL of the Lansweeper Helpdesk API.
+        api_key: The API key for authentication.
+        cert_path: Path to the SSL certificate file.
+
+    Example:
+        >>> api = HelpdeskAPI(
+        ...     base_url='https://helpdesk.example.com/api.aspx',
+        ...     api_key='your-api-key',
+        ...     cert_path='/path/to/cert.pem'
+        ... )
+        >>> with api:
+        ...     ticket = api.get_ticket('12345')
     """
 
-    def __init__(self,
-                 base_url=None, 
-                 api_key=None, 
-                 cert_path=None):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        cert_path: str
+    ) -> None:
         """Initialize the HelpdeskAPI client.
 
         Args:
-            base_url (str): The base URL of the Lansweeper Helpdesk API.
-            api_key (str): The API key for authentication.
-            cert_path (str): Path to the SSL certificate file.
+            base_url: The base URL of the Lansweeper Helpdesk API.
+            api_key: The API key for authentication.
+            cert_path: Path to the SSL certificate file.
 
         Raises:
-            ValueError: If base_url or api_key is not provided.
-            FileNotFoundError: If the certificate file is not found.
+            ConfigurationError: If base_url or api_key is not provided.
+            CertificateError: If the certificate file is not found.
         """
-        
-        self.base_url = base_url
-        self.api_key = api_key
-        self.cert_path = fr"{cert_path}"
+        if not base_url or not api_key:
+            raise ConfigurationError("Base URL and API key must be provided.")
 
-        if not self.base_url or not self.api_key:
-            raise ValueError("Base URL and API key must be provided.")
+        if not cert_path:
+            raise ConfigurationError("Certificate path must be provided.")
 
-        if not os.path.isfile(self.cert_path):
-            raise FileNotFoundError(f"Certificate file not found: {self.cert_path}")
+        if not os.path.isfile(cert_path):
+            raise CertificateError(f"Certificate file not found: {cert_path}")
 
-        self.session = requests.Session()
-        self.session.verify = self.cert_path
-    
-    # Function to pretty-print JSON response
-    def pretty_print_response(self, response):
-        """Pretty print the API response in a formatted JSON structure.
+        self._base_url = base_url
+        self._api_key = api_key
+        self._cert_path = cert_path
+        self._session: requests.Session | None = None
+
+    # =========================================================================
+    # Properties
+    # =========================================================================
+
+    @property
+    def base_url(self) -> str:
+        """Get the base URL of the API."""
+        return self._base_url
+
+    @property
+    def cert_path(self) -> str:
+        """Get the certificate path."""
+        return self._cert_path
+
+    @property
+    def session(self) -> requests.Session:
+        """Get the requests session, creating one if necessary."""
+        if self._session is None:
+            self._session = requests.Session()
+            self._session.verify = self._cert_path
+        return self._session
+
+    # =========================================================================
+    # Class Methods
+    # =========================================================================
+
+    @classmethod
+    def from_config(cls, config_path: str) -> HelpdeskAPI:
+        """Create a HelpdeskAPI instance from a configuration file.
 
         Args:
-            response (dict): The API response to format and print.
-        """
-        if response:
-            print(json.dumps(response, indent=4, sort_keys=True))
-        else:
-            print("No response or an error occurred.")
-
-    def make_request(self, action, method='GET', params=None, data=None, files=None):
-        """Make an HTTP request to the Lansweeper Helpdesk API.
-
-        Args:
-            action (str): The API action to perform.
-            method (str, optional): HTTP method to use ('GET' or 'POST'). Defaults to 'GET'.
-            params (dict, optional): Query parameters to include. Defaults to None.
-            data (dict, optional): Data to send in the request body. Defaults to None.
-            files (dict, optional): Files to upload. Defaults to None.
+            config_path: Path to the JSON configuration file.
 
         Returns:
-            dict or str: The API response, parsed as JSON if possible, otherwise as raw text.
-            None: If the request fails or returns empty response.
+            A configured HelpdeskAPI instance.
+
+        Raises:
+            ConfigurationError: If the config file cannot be read or is invalid.
+
+        Example:
+            >>> api = HelpdeskAPI.from_config('config/config.json')
         """
-        params = params or {}
-        data = data or {}
-        
-        params['Action'] = action
-        params['Key'] = self.api_key
-
-        url = self.base_url
-
-        #print(f"Making {method} request to {url} with params: {params} and data: {data}")
+        if not os.path.isfile(config_path):
+            raise ConfigurationError(f"Configuration file not found: {config_path}")
 
         try:
-            if method == 'GET':
-                response = self.session.get(url, params=params)
-            elif method == 'POST':
-                response = self.session.post(url, data=params, files=files)
-            
-            response.raise_for_status()
-            print(f"Response Status Code: {response.status_code}")
-            
-            # Check if the response is empty
-            if not response.text:
-                print("Empty response received.")
-                return None
-            
-            # Log the raw response text for debugging
-            print(f"Raw Response Text: {response.text}")
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ConfigurationError(f"Invalid JSON in configuration file: {e}")
+        except IOError as e:
+            raise ConfigurationError(f"Error reading configuration file: {e}")
 
-            # Attempt to parse JSON response
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                print("Response is not in JSON format.")
-                return response.text  # Return raw text if not JSON
-        except requests.RequestException as e:
-            print(f"An error occurred: {e}")
-            return None
+        required_keys = ['base_url', 'api_key', 'cert_path']
+        missing_keys = [key for key in required_keys if key not in config]
+        if missing_keys:
+            raise ConfigurationError(
+                f"Missing required configuration keys: {', '.join(missing_keys)}"
+            )
 
-    def usage_decorator(func):
+        return cls(
+            base_url=config['base_url'],
+            api_key=config['api_key'],
+            cert_path=config['cert_path']
+        )
+
+    # =========================================================================
+    # Context Manager Support
+    # =========================================================================
+
+    def __enter__(self) -> HelpdeskAPI:
+        """Enter the context manager."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the context manager and close the session."""
+        self.close()
+
+    def close(self) -> None:
+        """Close the requests session and release resources."""
+        if self._session is not None:
+            self._session.close()
+            self._session = None
+            logger.debug("Session closed")
+
+    # =========================================================================
+    # String Representations
+    # =========================================================================
+
+    def __repr__(self) -> str:
+        """Return a detailed string representation of the object."""
+        return (
+            f"{self.__class__.__name__}("
+            f"base_url={self._base_url!r}, "
+            f"cert_path={self._cert_path!r})"
+        )
+
+    def __str__(self) -> str:
+        """Return a user-friendly string representation of the object."""
+        return f"HelpdeskAPI connected to {self._base_url}"
+
+    # =========================================================================
+    # Static Methods
+    # =========================================================================
+
+    @staticmethod
+    def _usage_decorator(func: F) -> F:
+        """Decorator that catches TypeError and prints usage information.
+
+        Args:
+            func: The function to wrap.
+
+        Returns:
+            The wrapped function.
+        """
         @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
+        def wrapper(self: HelpdeskAPI, *args: Any, **kwargs: Any) -> Any:
             try:
                 return func(self, *args, **kwargs)
             except TypeError as e:
-                print(f"Incorrect usage of {func.__name__}: {e}")
-                print(f"Usage: {func.__doc__}")
+                logger.error(f"Incorrect usage of {func.__name__}: {e}")
+                logger.info(f"Usage: {func.__doc__}")
                 return None
-        return wrapper
+        return wrapper  # type: ignore
 
-    @usage_decorator
-    def create_ticket(self, subject, description, email):
+    # =========================================================================
+    # Utility Methods
+    # =========================================================================
+
+    @staticmethod
+    def format_response(response: dict[str, Any] | None) -> str:
+        """Format an API response as a pretty-printed JSON string.
+
+        Args:
+            response: The API response to format.
+
+        Returns:
+            Formatted JSON string or error message.
+        """
+        if response:
+            return json.dumps(response, indent=4, sort_keys=True)
+        return "No response or an error occurred."
+
+    def _make_request(
+        self,
+        action: str,
+        method: str = 'GET',
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        files: dict[str, Any] | None = None
+    ) -> dict[str, Any] | str | None:
+        """Make an HTTP request to the Lansweeper Helpdesk API.
+
+        Args:
+            action: The API action to perform.
+            method: HTTP method to use ('GET' or 'POST'). Defaults to 'GET'.
+            params: Query parameters to include.
+            data: Data to send in the request body.
+            files: Files to upload.
+
+        Returns:
+            The API response, parsed as JSON if possible, otherwise as raw text.
+            None if the request fails or returns an empty response.
+
+        Raises:
+            APIError: If the request fails (only when raise_on_error is True).
+        """
+        params = params or {}
+        data = data or {}
+
+        params['Action'] = action
+        params['Key'] = self._api_key
+
+        logger.debug(f"Making {method} request to {self._base_url} with action: {action}")
+
+        try:
+            if method.upper() == 'GET':
+                response = self.session.get(self._base_url, params=params)
+            elif method.upper() == 'POST':
+                response = self.session.post(self._base_url, data=params, files=files)
+            else:
+                logger.error(f"Unsupported HTTP method: {method}")
+                return None
+
+            response.raise_for_status()
+            logger.debug(f"Response Status Code: {response.status_code}")
+
+            if not response.text:
+                logger.warning("Empty response received")
+                return None
+
+            logger.debug(f"Raw Response Text: {response.text[:200]}...")
+
+            try:
+                return response.json()
+            except json.JSONDecodeError:
+                logger.debug("Response is not in JSON format, returning raw text")
+                return response.text
+
+        except requests.RequestException as e:
+            logger.error(f"Request failed: {e}")
+            return None
+
+    @staticmethod
+    def _html_to_text(html: str) -> str:
+        """Convert HTML content to plain text.
+
+        Args:
+            html: HTML content to convert.
+
+        Returns:
+            Plain text extracted from HTML.
+        """
+        soup = BeautifulSoup(html, 'html.parser')
+        return soup.get_text()
+
+    # =========================================================================
+    # Ticket Operations
+    # =========================================================================
+
+    @_usage_decorator
+    def create_ticket(
+        self,
+        subject: str,
+        description: str,
+        email: str
+    ) -> dict[str, Any] | None:
         """Create a new ticket in the helpdesk system.
 
         Args:
-            subject (str): The subject line of the ticket.
-            description (str): Detailed description of the issue or request.
-            email (str): Email address of the ticket requester.
+            subject: The subject line of the ticket.
+            description: Detailed description of the issue or request.
+            email: Email address of the ticket requester.
 
         Returns:
-            dict: The API response containing the created ticket information.
-            None: If the ticket creation fails.
+            The API response containing the created ticket information,
+            or None if the ticket creation fails.
 
         Example:
             >>> api.create_ticket(
-                    subject="Network Issue",
-                    description="Unable to connect to internal network",
-                    email="user@example.com"
-                )
+            ...     subject="Network Issue",
+            ...     description="Unable to connect to internal network",
+            ...     email="user@example.com"
+            ... )
         """
         params = {
             'Subject': subject,
             'Description': description,
             'Email': email,
         }
-        response = self.make_request('AddTicket', method='POST', params=params)
-        self.pretty_print_response(response)
+        response = self._make_request('AddTicket', method='POST', params=params)
+        logger.info(f"Created ticket: {self.format_response(response)}")
         return response
 
-    @usage_decorator
-    def get_ticket(self, ticket_id):
+    @_usage_decorator
+    def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         """Retrieve details of a specific ticket.
 
         Args:
-            ticket_id (str): The unique identifier of the ticket.
+            ticket_id: The unique identifier of the ticket.
 
         Returns:
-            dict: Ticket information including status, description, and metadata.
-                 HTML in description field is automatically converted to plain text.
-            None: If the ticket retrieval fails or ticket doesn't exist.
+            Ticket information including status, description, and metadata.
+            HTML in description field is automatically converted to plain text.
+            None if the ticket retrieval fails or ticket doesn't exist.
 
         Example:
             >>> api.get_ticket("12345")
         """
-        params = {
-            'TicketID': ticket_id,
-        }
-        response = self.make_request('GetTicket', method='GET', params=params)
-        
-        if response:
-            #print("Raw response:", response)
+        params = {'TicketID': ticket_id}
+        response = self._make_request('GetTicket', method='GET', params=params)
+
+        if response and isinstance(response, dict):
             if 'Description' in response:
-                soup = BeautifulSoup(response['Description'], 'html.parser')
-                response['Description'] = soup.get_text()
-            self.pretty_print_response(response)
+                response['Description'] = self._html_to_text(response['Description'])
+            logger.debug(f"Retrieved ticket {ticket_id}")
         else:
-            print("No response received or response is empty")
-        
+            logger.warning(f"No response received for ticket {ticket_id}")
+
         return response
-    
-    @usage_decorator
-    def get_ticket_history(self, ticket_id):
+
+    @_usage_decorator
+    def get_ticket_history(self, ticket_id: str) -> str | None:
         """Retrieve the complete history of a ticket including all notes and updates.
 
         Args:
-            ticket_id (str): The unique identifier of the ticket.
+            ticket_id: The unique identifier of the ticket.
 
         Returns:
-            str: Formatted JSON string containing the ticket's history.
-                 Includes all notes with HTML content converted to plain text.
-            None: If the history retrieval fails.
+            Formatted JSON string containing the ticket's history.
+            Includes all notes with HTML content converted to plain text.
+            None if the history retrieval fails.
 
         Note:
-            This method includes a 1-second delay between requests to prevent API rate limiting.
+            This method includes a 1-second delay between requests to
+            prevent API rate limiting.
         """
-        params = {
-            'TicketID': ticket_id,
-        }
-
+        params = {'TicketID': ticket_id}
         ticket_info = []
 
-        response = self.make_request('GetNotes', method='GET', params=params)
-        
+        response = self._make_request('GetNotes', method='GET', params=params)
+
         if not response:
-            print("No response received or response is empty")
+            logger.warning(f"No response received for ticket history {ticket_id}")
             return None
 
-        # Parse HTML in 'Notes' field if it is not None
-        if response.get('Notes') is not None:
+        if isinstance(response, dict) and response.get('Notes') is not None:
             notes = []
             for note in response['Notes']:
                 note_str = json.dumps(note)
                 soup = BeautifulSoup(note_str, 'html.parser')
                 notes.append(soup.get_text())
             response['Notes'] = '\n\n'.join(notes)
-
             ticket_info.append(response)
 
-        # pause for 1 second
+        # Pause to prevent rate limiting
         time.sleep(1)
 
-        # Parse and pretty-print the ticket history
+        # Parse and format the ticket history
         for ticket in ticket_info:
             if 'Notes' in ticket:
-                # Parse the nested JSON string in 'Notes'
                 notes = ticket['Notes'].split('\n\n')
                 parsed_notes = []
                 for note in notes:
@@ -236,153 +447,175 @@ class HelpdeskAPI:
                         try:
                             parsed_notes.append(json.loads(note))
                         except json.JSONDecodeError:
-                            print(f"Invalid JSON format in note: {note}")
-                            parsed_notes.append(note)  # Append raw note if JSON parsing fail
+                            logger.debug(f"Note is not JSON format, keeping as text")
+                            parsed_notes.append(note)
                 ticket['Notes'] = parsed_notes
 
-        # Pretty-print the JSON response
-        formatted_ticket_info = json.dumps(ticket_info, indent=4)
-        return formatted_ticket_info
+        logger.debug(f"Retrieved history for ticket {ticket_id}")
+        return json.dumps(ticket_info, indent=4)
 
-    @usage_decorator
-    def add_note(self, ticket_id, text, email, type) -> dict | None:
+    @_usage_decorator
+    def add_note(
+        self,
+        ticket_id: str,
+        text: str,
+        email: str,
+        note_type: str
+    ) -> dict[str, Any] | None:
         """Add a note to an existing ticket.
 
         Args:
-            ticket_id (str): The unique identifier of the ticket.
-            text (str): The content of the note to add.
-            email (str): Email address of the note author.
-            type (str): Type of note - either 'Public' or 'Internal'.
+            ticket_id: The unique identifier of the ticket.
+            text: The content of the note to add.
+            email: Email address of the note author.
+            note_type: Type of note - either 'Public' or 'Internal'.
 
         Returns:
-            dict: The API response confirming note addition.
-            None: If adding the note fails.
+            The API response confirming note addition,
+            or None if adding the note fails.
 
         Example:
             >>> api.add_note(
-                    ticket_id="12345",
-                    text="Updated status with customer",
-                    email="agent@example.com",
-                    type="Public"
-                )
+            ...     ticket_id="12345",
+            ...     text="Updated status with customer",
+            ...     email="agent@example.com",
+            ...     note_type="Public"
+            ... )
         """
+        logger.info(f"Adding note to ticket {ticket_id}")
+        logger.debug(f"Note text length: {len(text)}, Email: {email}, Type: {note_type}")
+
+        params = {
+            'TicketID': ticket_id,
+            'Text': text,
+            'Email': email,
+            'Type': note_type
+        }
+
         try:
-            logging.info(f"Adding note to ticket {ticket_id}")
-            logging.info(f"Note text length: {len(text)}")
-            logging.info(f"Email: {email}")
-            logging.info(f"Note type: {type}")
-            
-            params = {
-                'TicketID': ticket_id,
-                'Text': text,
-                'Email': email,
-                'Type': type
-            }
-            
-            response = self.make_request('AddNote', method='POST', params=params)
-            logging.info(f"Raw API response: {response}")
+            response = self._make_request('AddNote', method='POST', params=params)
+            logger.debug(f"Add note response: {response}")
             return response
         except Exception as e:
-            logging.error(f"Error in add_note: {str(e)}", exc_info=True)
+            logger.error(f"Error in add_note: {e}", exc_info=True)
             return None
-    
-    @usage_decorator
-    def search_ticket(self, state=None, FromUserId=None, AgentId=None, Description=None, Subject=None, Type=None, MaxResults=None, MinDate=None, MaxDate=None):
+
+    @_usage_decorator
+    def search_tickets(
+        self,
+        state: str | None = None,
+        from_user_id: str | None = None,
+        agent_id: str | None = None,
+        description: str | None = None,
+        subject: str | None = None,
+        ticket_type: str | None = None,
+        max_results: int | None = None,
+        min_date: str | None = None,
+        max_date: str | None = None
+    ) -> dict[str, Any] | None:
         """Search for tickets based on various criteria.
 
         Args:
-            state (str, optional): Ticket state ('Open', 'Closed', etc.).
-            FromUserId (str, optional): ID of the ticket creator.
-            AgentId (str, optional): ID of the assigned agent.
-            Description (str, optional): Search text in ticket description.
-            Subject (str, optional): Search text in ticket subject.
-            Type (str, optional): Ticket type (e.g., 'Hardware Repair', 'Network', etc.).
-            MaxResults (int, optional): Maximum number of results to return (default 100).
-            MinDate (str, optional): Start date for ticket search (format: YYYY-MM-DD).
-            MaxDate (str, optional): End date for ticket search (format: YYYY-MM-DD).
+            state: Ticket state ('Open', 'Closed', etc.).
+            from_user_id: ID of the ticket creator.
+            agent_id: ID of the assigned agent.
+            description: Search text in ticket description.
+            subject: Search text in ticket subject.
+            ticket_type: Ticket type (e.g., 'Hardware Repair', 'Network').
+            max_results: Maximum number of results to return.
+            min_date: Start date for ticket search (format: YYYY-MM-DD).
+            max_date: End date for ticket search (format: YYYY-MM-DD).
 
         Returns:
-            dict: List of matching ticket IDs and their information.
-            None: If the search fails.
+            List of matching ticket IDs and their information,
+            or None if the search fails.
 
         Note:
-            If MaxResults is set lower than the actual number of matching tickets,
-            the API will return an empty list.
+            If max_results is set lower than the actual number of matching
+            tickets, the API will return an empty list.
 
         Example:
-            >>> api.search_ticket(
-                    state="Open",
-                    Type="Hardware Repair",
-                    MaxResults=50
-                )
+            >>> api.search_tickets(
+            ...     state="Open",
+            ...     ticket_type="Hardware Repair",
+            ...     max_results=50
+            ... )
         """
         params = {
             'State': state,
-            'FromUserId': FromUserId,
-            'AgentId': AgentId,
-            'Description': Description,
-            'Subject': Subject,
-            'Type': Type,
-            'MaxResults': MaxResults, # if lower than the tickets returned, the api will bitch about it and return an empty list.
-            'MinDate': MinDate,
-            'MaxDate': MaxDate
+            'FromUserId': from_user_id,
+            'AgentId': agent_id,
+            'Description': description,
+            'Subject': subject,
+            'Type': ticket_type,
+            'MaxResults': max_results,
+            'MinDate': min_date,
+            'MaxDate': max_date
         }
         # Remove keys with None values
         params = {k: v for k, v in params.items() if v is not None}
-        
-        response = self.make_request('SearchTickets', method='GET', params=params)
-        self.pretty_print_response(response)
-        return response # returns a list of ticketIDs
-    
-    @usage_decorator
-    def get_user(self, email):  
-        """Retrieve user information by email address.
 
-        Args:
-            email (str): Email address of the user to look up.
-
-        Returns:
-            dict: User information including ID and profile details.
-            None: If the user is not found or lookup fails.
-
-        Example:
-            >>> api.get_user("user@example.com")
-        """
-        params = {
-            'Email': email
-        }
-        response = self.make_request('SearchUsers', method='GET', params=params)
-        self.pretty_print_response(response)
+        response = self._make_request('SearchTickets', method='GET', params=params)
+        logger.debug(f"Search returned: {self.format_response(response)}")
         return response
 
-    @usage_decorator
-    def edit_ticket(self, ticket_id, state, type, email):
+    @_usage_decorator
+    def edit_ticket(
+        self,
+        ticket_id: str,
+        state: str,
+        ticket_type: str,
+        email: str
+    ) -> dict[str, Any] | None:
         """Update an existing ticket's properties.
 
         Args:
-            ticket_id (str): The unique identifier of the ticket to edit.
-            state (str): New state for the ticket ('Open', 'Closed', etc.).
-            type (str): New type for the ticket (e.g., 'Hardware Repair', 'Network').
-            email (str): Email address of the person making the edit.
+            ticket_id: The unique identifier of the ticket to edit.
+            state: New state for the ticket ('Open', 'Closed', etc.).
+            ticket_type: New type for the ticket (e.g., 'Hardware Repair').
+            email: Email address of the person making the edit.
 
         Returns:
-            dict: The API response confirming ticket updates.
-            None: If the ticket update fails.
+            The API response confirming ticket updates,
+            or None if the ticket update fails.
 
         Example:
             >>> api.edit_ticket(
-                    ticket_id="12345",
-                    state="Closed",
-                    type="Hardware Repair",
-                    email="agent@example.com"
-                )
+            ...     ticket_id="12345",
+            ...     state="Closed",
+            ...     ticket_type="Hardware Repair",
+            ...     email="agent@example.com"
+            ... )
         """
         params = {
             'TicketID': ticket_id,
             'State': state,
-            'Type': type,
+            'Type': ticket_type,
             'Email': email
         }
-        response = self.make_request('EditTicket', method='POST', params=params)
-        self.pretty_print_response(response)
+        response = self._make_request('EditTicket', method='POST', params=params)
+        logger.info(f"Edited ticket {ticket_id}: {self.format_response(response)}")
+        return response
+
+    # =========================================================================
+    # User Operations
+    # =========================================================================
+
+    @_usage_decorator
+    def get_user(self, email: str) -> dict[str, Any] | None:
+        """Retrieve user information by email address.
+
+        Args:
+            email: Email address of the user to look up.
+
+        Returns:
+            User information including ID and profile details,
+            or None if the user is not found or lookup fails.
+
+        Example:
+            >>> api.get_user("user@example.com")
+        """
+        params = {'Email': email}
+        response = self._make_request('SearchUsers', method='GET', params=params)
+        logger.debug(f"User lookup for {email}: {self.format_response(response)}")
         return response
