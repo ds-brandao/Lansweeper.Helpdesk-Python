@@ -1,8 +1,7 @@
-name: Publish to PyPI
+name: Publish to TestPyPI
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -35,34 +34,10 @@ jobs:
           name: dist
           path: dist/
 
-  test-install:
+  publish-testpypi:
     needs: build
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.12", "3.13"]
-    steps:
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Install from wheel
-        run: pip install dist/*.whl
-
-      - name: Verify import
-        run: python -c "from lansweeper_helpdesk import HelpdeskAPI, __version__; print(f'lansweeper-helpdesk v{__version__} installed successfully')"
-
-  publish:
-    needs: [build, test-install]
-    runs-on: ubuntu-latest
-    environment: pypi
+    environment: testpypi
     permissions:
       id-token: write
     steps:
@@ -72,5 +47,7 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Publish to PyPI
+      - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
