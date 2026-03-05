@@ -5,23 +5,27 @@ build-backend = "hatchling.build"
 [project]
 name = "lansweeper-helpdesk"
 dynamic = ["version"]
-description = "Python SDK for the Lansweeper Helpdesk API"
+description = "Python SDK for the Lansweeper Helpdesk API — create, search, and manage helpdesk tickets programmatically."
 readme = "README.md"
-license = "MIT"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
     { name = "Daniel Brandao" },
 ]
-keywords = ["lansweeper", "helpdesk", "api", "sdk", "itsm"]
+keywords = ["lansweeper", "helpdesk", "api", "sdk", "itsm", "ticketing", "it-service-management"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
     "Typing :: Typed",
 ]
 dependencies = [
@@ -31,6 +35,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/ds-brandao/Lansweeper.Helpdesk-Python"
+Documentation = "https://github.com/ds-brandao/Lansweeper.Helpdesk-Python#readme"
 Repository = "https://github.com/ds-brandao/Lansweeper.Helpdesk-Python"
 Issues = "https://github.com/ds-brandao/Lansweeper.Helpdesk-Python/issues"
 Changelog = "https://github.com/ds-brandao/Lansweeper.Helpdesk-Python/blob/main/CHANGELOG.md"
@@ -44,6 +49,7 @@ dev = [
     "mypy>=1.10",
     "types-requests>=2.31",
     "types-beautifulsoup4>=4.12",
+    "build>=1.0",
 ]
 
 [tool.hatch.version]
@@ -51,6 +57,16 @@ path = "src/lansweeper_helpdesk/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lansweeper_helpdesk"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "tests/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
 
 [tool.ruff]
 target-version = "py310"
