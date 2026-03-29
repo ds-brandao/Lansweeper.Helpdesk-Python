@@ -1,8 +1,8 @@
 # lansweeper-helpdesk
 
 [![CI](https://github.com/ds-brandao/Lansweeper.Helpdesk-Python/actions/workflows/ci.yml/badge.svg)](https://github.com/ds-brandao/Lansweeper.Helpdesk-Python/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/lansweeper-helpdesk)](https://pypi.org/project/lansweeper-helpdesk/)
-[![Python](https://img.shields.io/pypi/pyversions/lansweeper-helpdesk)](https://pypi.org/project/lansweeper-helpdesk/)
+[![PyPI](https://img.shields.io/pypi/v/lansweeper-helpdesk?v=1)](https://pypi.org/project/lansweeper-helpdesk/)
+[![Python](https://img.shields.io/pypi/pyversions/lansweeper-helpdesk?v=1)](https://pypi.org/project/lansweeper-helpdesk/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Python SDK for the [Lansweeper Helpdesk API](https://www.lansweeper.com/). Create, retrieve, search, and manage helpdesk tickets programmatically.
